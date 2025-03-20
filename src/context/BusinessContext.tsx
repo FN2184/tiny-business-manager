@@ -11,6 +11,9 @@ export interface Product {
   profit_percentage: number;
   profit_margin: number;
   stock: number;
+  category: string;
+  min_stock: number;
+  sales_count: number;
 }
 
 export interface CartItem extends Product {
@@ -55,7 +58,12 @@ interface BusinessContextType {
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
   uploadProductsFromJSON: (file: File) => Promise<void>;
-  addProduct: (product: Omit<Product, 'id'>) => void;
+  addProduct: (product: Omit<Product, 'id' | 'sales_count'>) => void;
+  updateProductStock: (productId: string, newStock: number) => void;
+  exportProductsToJSON: () => void;
+  getProductCategories: () => string[];
+  getLowStockProducts: () => Product[];
+  getTopSellingProducts: (limit?: number) => Product[];
   
   // Cart
   cart: CartItem[];
@@ -79,6 +87,10 @@ interface BusinessContextType {
   // Calculations
   calculateSubtotalBS: () => number;
   calculateSubtotalUSD: () => number;
+  calculateChange: (amountPaid: number, currency: 'BS' | 'USD') => { 
+    change_usd: number; 
+    change_bs: number;
+  };
   
   // Purchases
   completePurchase: (
@@ -156,6 +168,17 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     }
   }, [lastExchangeRateUpdate]);
 
+  // Check for low stock alerts
+  useEffect(() => {
+    const lowStockProducts = getLowStockProducts();
+    if (lowStockProducts.length > 0) {
+      toast.warning("Alerta de inventario bajo", {
+        description: `${lowStockProducts.length} productos tienen stock bajo.`,
+        duration: 5000,
+      });
+    }
+  }, [products]);
+
   // Product functions
   const uploadProductsFromJSON = async (file: File): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -183,6 +206,9 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
               const price = parseFloat(item.price);
               const cost = item.cost ? parseFloat(item.cost) : 0;
               const stock = item.stock ? parseInt(item.stock, 10) : 0;
+              const category = item.category ? item.category.trim() : 'Sin categoría';
+              const min_stock = item.min_stock ? parseInt(item.min_stock, 10) : 5;
+              const sales_count = item.sales_count ? parseInt(item.sales_count, 10) : 0;
               
               if (name && !isNaN(price)) {
                 const profit_percentage = cost > 0 ? ((price - cost) / cost) * 100 : 0;
@@ -195,7 +221,10 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
                   cost,
                   profit_percentage,
                   profit_margin,
-                  stock
+                  stock,
+                  category,
+                  min_stock,
+                  sales_count
                 });
               }
             }
@@ -240,10 +269,11 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     });
   };
 
-  const addProduct = (product: Omit<Product, 'id'>) => {
+  const addProduct = (product: Omit<Product, 'id' | 'sales_count'>) => {
     const newProduct: Product = {
       ...product,
       id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+      sales_count: 0
     };
     
     setProducts(prev => [...prev, newProduct]);
@@ -251,13 +281,92 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
       description: `${newProduct.name} se ha añadido al inventario.`,
     });
   };
+  
+  const updateProductStock = (productId: string, newStock: number) => {
+    if (newStock < 0) {
+      toast.error("Stock inválido", {
+        description: "El stock no puede ser negativo.",
+      });
+      return;
+    }
+    
+    setProducts(prev => 
+      prev.map(product => {
+        if (product.id === productId) {
+          return {
+            ...product,
+            stock: newStock
+          };
+        }
+        return product;
+      })
+    );
+    
+    toast.success("Stock actualizado", {
+      description: "El stock del producto ha sido actualizado.",
+    });
+  };
+  
+  const exportProductsToJSON = () => {
+    if (products.length === 0) {
+      toast.error("No hay productos", {
+        description: "No hay productos para exportar.",
+      });
+      return;
+    }
+    
+    const dataStr = JSON.stringify(products, null, 2);
+    const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(dataStr)}`;
+    
+    const exportFileDefaultName = `inventario_${new Date().toLocaleDateString().replace(/\//g, '-')}.json`;
+    
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+    
+    toast.success("Inventario exportado", {
+      description: "El inventario ha sido exportado como archivo JSON.",
+    });
+  };
+  
+  const getProductCategories = () => {
+    const categories = new Set(products.map(product => product.category));
+    return Array.from(categories);
+  };
+  
+  const getLowStockProducts = () => {
+    return products.filter(product => product.stock <= product.min_stock);
+  };
+  
+  const getTopSellingProducts = (limit = 10) => {
+    return [...products]
+      .sort((a, b) => b.sales_count - a.sales_count)
+      .slice(0, limit);
+  };
 
   // Cart functions
   const addToCart = (product: Product, quantity: number) => {
+    // Check if there's enough stock
+    if (quantity > product.stock) {
+      toast.error("Stock insuficiente", {
+        description: `Solo hay ${product.stock} unidades disponibles de ${product.name}.`,
+      });
+      return;
+    }
+    
     setCart(prev => {
       const existingItem = prev.find(item => item.id === product.id);
       
       if (existingItem) {
+        // Check if total quantity exceeds stock
+        if (existingItem.quantity + quantity > product.stock) {
+          toast.error("Stock insuficiente", {
+            description: `No hay suficiente stock disponible. Stock actual: ${product.stock}, En carrito: ${existingItem.quantity}.`,
+          });
+          return prev;
+        }
+        
         return prev.map(item => 
           item.id === product.id 
             ? { ...item, quantity: item.quantity + quantity } 
@@ -280,6 +389,15 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
   const updateCartItemQuantity = (productId: string, quantity: number) => {
     if (quantity <= 0) {
       removeFromCart(productId);
+      return;
+    }
+    
+    // Find product to check stock
+    const product = products.find(p => p.id === productId);
+    if (product && quantity > product.stock) {
+      toast.error("Stock insuficiente", {
+        description: `Solo hay ${product.stock} unidades disponibles.`,
+      });
       return;
     }
     
@@ -364,6 +482,23 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
   const calculateSubtotalUSD = () => {
     return cart.reduce((total, item) => total + (item.price * item.quantity), 0);
   };
+  
+  const calculateChange = (amountPaid: number, currency: 'BS' | 'USD') => {
+    const totalUSD = calculateSubtotalUSD();
+    let changeUSD = 0;
+    
+    if (currency === 'USD') {
+      changeUSD = amountPaid - totalUSD;
+    } else {
+      // Convert BS to USD
+      changeUSD = (amountPaid / exchangeRate) - totalUSD;
+    }
+    
+    return {
+      change_usd: Math.max(0, changeUSD),
+      change_bs: Math.max(0, changeUSD * exchangeRate)
+    };
+  };
 
   // Purchase completion
   const completePurchase = (
@@ -428,7 +563,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
       );
     }
     
-    // Update product stock
+    // Update product stock and sales count
     setProducts(prev => 
       prev.map(product => {
         const cartItem = cart.find(item => item.id === product.id);
@@ -436,6 +571,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
           return {
             ...product,
             stock: Math.max(0, product.stock - cartItem.quantity),
+            sales_count: product.sales_count + cartItem.quantity
           };
         }
         return product;
@@ -462,6 +598,11 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     setProducts,
     uploadProductsFromJSON,
     addProduct,
+    updateProductStock,
+    exportProductsToJSON,
+    getProductCategories,
+    getLowStockProducts,
+    getTopSellingProducts,
     
     cart,
     addToCart,
@@ -481,6 +622,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     
     calculateSubtotalBS,
     calculateSubtotalUSD,
+    calculateChange,
     
     completePurchase,
   };
@@ -491,3 +633,4 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     </BusinessContext.Provider>
   );
 };
+

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Search, ShoppingCart, X, Plus, Minus, 
+  Search, ShoppingCart, X, Plus, Minus, Calculator,
   Trash2, CreditCard, DollarSign, Users, User, CreditCardIcon, SmartphoneIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -31,6 +31,11 @@ import {
   RadioGroup,
   RadioGroupItem,
 } from "@/components/ui/radio-group";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Label } from "@/components/ui/label";
 import { toast } from 'sonner';
 import { useBusinessContext, PaymentMethod } from '@/context/BusinessContext';
@@ -75,7 +80,8 @@ const Invoicing = () => {
     calculateSubtotalBS,
     calculateSubtotalUSD,
     exchangeRate,
-    completePurchase
+    completePurchase,
+    calculateChange
   } = useBusinessContext();
   
   // Local state
@@ -88,20 +94,34 @@ const Invoicing = () => {
   const [customerType, setCustomerType] = useState<'regular' | 'occasional'>('occasional');
   const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [filteredCustomers, setFilteredCustomers] = useState(customers);
+  const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
+  const [calculatorAmount, setCalculatorAmount] = useState<string>('');
+  const [calculatorCurrency, setCalculatorCurrency] = useState<'BS' | 'USD'>('USD');
+  const [calculatorResult, setCalculatorResult] = useState<{ change_usd: number; change_bs: number } | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
+  const [productCategories, setProductCategories] = useState<string[]>([]);
   
-  // Update filtered products when search term or products change
+  // Update filtered products when search term, selected category, or products change
   useEffect(() => {
-    if (searchTerm.trim() === '') {
-      setFilteredProducts(products);
-    } else {
+    // Extract unique categories
+    const categories = new Set(products.map(product => product.category));
+    setProductCategories(Array.from(categories));
+    
+    let filtered = [...products];
+    
+    if (searchTerm.trim() !== '') {
       const lowerSearchTerm = searchTerm.toLowerCase();
-      setFilteredProducts(
-        products.filter(product => 
-          product.name.toLowerCase().includes(lowerSearchTerm)
-        )
+      filtered = filtered.filter(product => 
+        product.name.toLowerCase().includes(lowerSearchTerm)
       );
     }
-  }, [searchTerm, products]);
+    
+    if (selectedCategory !== 'all') {
+      filtered = filtered.filter(product => product.category === selectedCategory);
+    }
+    
+    setFilteredProducts(filtered);
+  }, [searchTerm, selectedCategory, products]);
   
   // Update filtered customers when search term changes
   useEffect(() => {
@@ -134,6 +154,14 @@ const Invoicing = () => {
     if (quantity <= 0) {
       toast.error("Cantidad inválida", {
         description: "La cantidad debe ser mayor que cero.",
+      });
+      return;
+    }
+    
+    // Check if there's enough stock
+    if (quantity > product.stock) {
+      toast.error("Stock insuficiente", {
+        description: `Solo hay ${product.stock} unidades disponibles.`,
       });
       return;
     }
@@ -208,6 +236,47 @@ const Invoicing = () => {
     setCustomerType('occasional');
   };
   
+  // Handle calculator
+  const handleCalculateChange = () => {
+    if (!calculatorAmount || isNaN(parseFloat(calculatorAmount.replace(',', '.')))) {
+      toast.error("Monto inválido", {
+        description: "Ingrese un monto válido para calcular el cambio.",
+      });
+      return;
+    }
+    
+    const amount = parseFloat(calculatorAmount.replace(',', '.'));
+    const change = calculateChange(amount, calculatorCurrency);
+    
+    setCalculatorResult(change);
+  };
+  
+  // Increase/decrease quantity in cart
+  const handleUpdateQuantity = (productId: string, increment: boolean) => {
+    const item = cart.find(item => item.id === productId);
+    if (!item) return;
+    
+    const newQuantity = increment ? item.quantity + 1 : item.quantity - 1;
+    
+    if (newQuantity <= 0) {
+      removeFromCart(productId);
+      return;
+    }
+    
+    // Check if there's enough stock when incrementing
+    if (increment) {
+      const product = products.find(p => p.id === productId);
+      if (product && newQuantity > product.stock) {
+        toast.error("Stock insuficiente", {
+          description: `Solo hay ${product.stock} unidades disponibles.`,
+        });
+        return;
+      }
+    }
+    
+    updateCartItemQuantity(productId, newQuantity);
+  };
+  
   // Format currency
   const formatCurrency = (value: number, currency: 'BS' | 'USD') => {
     return currency === 'BS' 
@@ -238,11 +307,30 @@ const Invoicing = () => {
               <Card>
                 <h2 className="text-xl font-semibold mb-4">Productos</h2>
                 
-                <SearchInput 
-                  placeholder="Buscar productos por nombre..." 
-                  onSearch={handleSearch}
-                  className="mb-6"
-                />
+                <div className="flex flex-col md:flex-row md:items-center gap-3 mb-6">
+                  <SearchInput 
+                    placeholder="Buscar productos por nombre..." 
+                    onSearch={handleSearch}
+                    className="flex-1"
+                  />
+                  
+                  <Select 
+                    value={selectedCategory} 
+                    onValueChange={setSelectedCategory}
+                  >
+                    <SelectTrigger className="w-full md:w-40">
+                      <SelectValue placeholder="Categoría" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas las categorías</SelectItem>
+                      {productCategories.map(category => (
+                        <SelectItem key={category} value={category}>
+                          {category}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 
                 {filteredProducts.length === 0 ? (
                   <div className="text-center py-8">
@@ -278,6 +366,11 @@ const Invoicing = () => {
                             {product.stock === 0 && (
                               <span className="ml-2 text-destructive">
                                 Sin stock
+                              </span>
+                            )}
+                            {product.stock > 0 && (
+                              <span className="ml-2 text-emerald-500">
+                                Stock: {product.stock}
                               </span>
                             )}
                           </div>
@@ -323,7 +416,7 @@ const Invoicing = () => {
                   </div>
                 ) : (
                   <>
-                    <div className="max-h-[calc(100vh-420px)] overflow-y-auto pr-1 mb-4 border-t border-dashed pt-4">
+                    <div className="max-h-[calc(100vh-500px)] overflow-y-auto pr-1 mb-4 border-t border-dashed pt-4">
                       <AnimatePresence>
                         {cart.map((item) => (
                           <motion.div
@@ -342,12 +435,32 @@ const Invoicing = () => {
                             </div>
                             
                             <div className="flex items-center space-x-2">
-                              <Input
-                                type="text"
-                                value={item.quantity}
-                                onChange={(e) => handleQuantityChange(item.id, e.target.value)}
-                                className="w-16 h-8 text-center text-sm"
-                              />
+                              <div className="flex items-center border rounded-md overflow-hidden">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 rounded-none border-r"
+                                  onClick={() => handleUpdateQuantity(item.id, false)}
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
+                                
+                                <Input
+                                  type="text"
+                                  value={item.quantity}
+                                  onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                                  className="w-12 h-8 text-center text-sm border-0 rounded-none"
+                                />
+                                
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0 rounded-none border-l"
+                                  onClick={() => handleUpdateQuantity(item.id, true)}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              </div>
                               
                               <Button
                                 variant="outline"
@@ -373,9 +486,82 @@ const Invoicing = () => {
                         <span className="font-medium">{formatCurrency(calculateSubtotalBS(), 'BS')}</span>
                       </div>
                       
-                      <Button className="w-full" onClick={handleCheckout}>
-                        Procesar Compra
-                      </Button>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                        <Popover open={isCalculatorOpen} onOpenChange={setIsCalculatorOpen}>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline">
+                              <Calculator className="mr-2 h-4 w-4" />
+                              Calcular Cambio
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-80">
+                            <div className="space-y-4">
+                              <h3 className="font-medium">Calculadora de Cambio</h3>
+                              
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <Label>Monto Recibido</Label>
+                                  <div className="flex space-x-1">
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      className={calculatorCurrency === 'USD' ? 'bg-primary/10' : ''}
+                                      onClick={() => setCalculatorCurrency('USD')}
+                                    >
+                                      USD
+                                    </Button>
+                                    <Button 
+                                      variant="outline" 
+                                      size="sm"
+                                      className={calculatorCurrency === 'BS' ? 'bg-primary/10' : ''}
+                                      onClick={() => setCalculatorCurrency('BS')}
+                                    >
+                                      BS
+                                    </Button>
+                                  </div>
+                                </div>
+                                
+                                <Input
+                                  value={calculatorAmount}
+                                  onChange={(e) => setCalculatorAmount(e.target.value)}
+                                  placeholder={`Ej. 50${calculatorCurrency === 'USD' ? '' : '0'}`}
+                                />
+                              </div>
+                              
+                              <div className="grid grid-cols-2 gap-3">
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setIsCalculatorOpen(false)}
+                                >
+                                  Cancelar
+                                </Button>
+                                <Button
+                                  onClick={handleCalculateChange}
+                                >
+                                  Calcular
+                                </Button>
+                              </div>
+                              
+                              {calculatorResult && (
+                                <div className="mt-4 space-y-2 p-3 bg-muted rounded-md">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-sm">Cambio (USD):</span>
+                                    <span className="font-medium">{formatCurrency(calculatorResult.change_usd, 'USD')}</span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-sm">Cambio (BS):</span>
+                                    <span className="font-medium">{formatCurrency(calculatorResult.change_bs, 'BS')}</span>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                        
+                        <Button className="w-full" onClick={handleCheckout}>
+                          Procesar Compra
+                        </Button>
+                      </div>
                     </div>
                   </>
                 )}
@@ -492,6 +678,50 @@ const Invoicing = () => {
                       {(customerType === 'regular' && selectedCustomerId) && 
                         " Si el monto es menor que el total, la diferencia se aplicará como crédito."}
                     </p>
+                    
+                    {amountPaid && !isNaN(parseFloat(amountPaid.replace(',', '.'))) && (
+                      <div className="p-3 bg-muted rounded-md mt-3">
+                        <h4 className="text-sm font-medium mb-2">Cálculo de Cambio</h4>
+                        {(() => {
+                          const amount = parseFloat(amountPaid.replace(',', '.'));
+                          const total = calculateSubtotalUSD();
+                          
+                          if (amount < total) {
+                            return (
+                              <p className="text-sm text-amber-500">
+                                El monto pagado es menor que el total. 
+                                {customerType === 'regular' && selectedCustomerId 
+                                  ? " La diferencia se registrará como crédito." 
+                                  : ""}
+                              </p>
+                            );
+                          }
+                          
+                          const change = calculateChange(amount, 'USD');
+                          
+                          return (
+                            <div className="space-y-1">
+                              <div className="flex justify-between text-sm">
+                                <span>Monto recibido:</span>
+                                <span>${amount.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between text-sm">
+                                <span>Total a pagar:</span>
+                                <span>${total.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between text-sm font-medium">
+                                <span>Cambio (USD):</span>
+                                <span>${change.change_usd.toFixed(2)}</span>
+                              </div>
+                              <div className="flex justify-between text-sm font-medium">
+                                <span>Cambio (BS):</span>
+                                <span>Bs. {change.change_bs.toFixed(2)}</span>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
                   </div>
                 </TabsContent>
                 
@@ -585,3 +815,4 @@ const Invoicing = () => {
 };
 
 export default Invoicing;
+
