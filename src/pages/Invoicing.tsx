@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Search, ShoppingCart, X, Plus, Minus, 
-  Trash2, CreditCard, DollarSign
+  Trash2, CreditCard, DollarSign, Users, User, CreditCardIcon, SmartphoneIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,8 +21,19 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
+  RadioGroup,
+  RadioGroupItem,
+} from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 import { toast } from 'sonner';
-import { useBusinessContext } from '@/context/BusinessContext';
+import { useBusinessContext, PaymentMethod } from '@/context/BusinessContext';
 import PageTransition from '@/components/layout/PageTransition';
 import SearchInput from '@/components/ui-custom/SearchInput';
 import Card from '@/components/ui-custom/Card';
@@ -72,8 +83,11 @@ const Invoicing = () => {
   const [filteredProducts, setFilteredProducts] = useState(products);
   const [isCheckoutDialogOpen, setIsCheckoutDialogOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
   const [amountPaid, setAmountPaid] = useState<string>('');
+  const [customerType, setCustomerType] = useState<'regular' | 'occasional'>('occasional');
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
+  const [filteredCustomers, setFilteredCustomers] = useState(customers);
   
   // Update filtered products when search term or products change
   useEffect(() => {
@@ -89,9 +103,30 @@ const Invoicing = () => {
     }
   }, [searchTerm, products]);
   
+  // Update filtered customers when search term changes
+  useEffect(() => {
+    if (customerSearchTerm.trim() === '') {
+      setFilteredCustomers(customers);
+    } else {
+      const lowerSearchTerm = customerSearchTerm.toLowerCase();
+      setFilteredCustomers(
+        customers.filter(customer => 
+          customer.name.toLowerCase().includes(lowerSearchTerm) ||
+          customer.email.toLowerCase().includes(lowerSearchTerm) ||
+          customer.phone.toLowerCase().includes(lowerSearchTerm)
+        )
+      );
+    }
+  }, [customerSearchTerm, customers]);
+  
   // Handle search
   const handleSearch = (term: string) => {
     setSearchTerm(term);
+  };
+  
+  // Handle customer search
+  const handleCustomerSearch = (term: string) => {
+    setCustomerSearchTerm(term);
   };
   
   // Handle adding product to cart
@@ -131,6 +166,14 @@ const Invoicing = () => {
   
   // Handle complete purchase
   const handleCompletePurchase = () => {
+    // For credit payment, customer must be selected
+    if (paymentMethod === 'credit' && !selectedCustomerId) {
+      toast.error("Cliente requerido", {
+        description: "Debe seleccionar un cliente para ventas a crédito.",
+      });
+      return;
+    }
+    
     // For cash payment, ensure amount paid is valid if entered
     if (paymentMethod === 'cash' && amountPaid) {
       const amount = parseFloat(amountPaid.replace(',', '.'));
@@ -153,15 +196,16 @@ const Invoicing = () => {
         }
       }
       
-      completePurchase(selectedCustomerId, paymentMethod, amount);
+      completePurchase(customerType, selectedCustomerId, paymentMethod, amount);
     } else {
-      completePurchase(selectedCustomerId, paymentMethod);
+      completePurchase(customerType, selectedCustomerId, paymentMethod);
     }
     
     setIsCheckoutDialogOpen(false);
     setSelectedCustomerId(null);
     setPaymentMethod('cash');
     setAmountPaid('');
+    setCustomerType('occasional');
   };
   
   // Format currency
@@ -343,78 +387,177 @@ const Invoicing = () => {
       
       {/* Checkout Dialog */}
       <Dialog open={isCheckoutDialogOpen} onOpenChange={setIsCheckoutDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>Completar Compra</DialogTitle>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
+            {/* Customer Type Selection */}
             <div className="space-y-2">
-              <label className="text-sm font-medium">Cliente (opcional)</label>
-              <Select 
-                value={selectedCustomerId || ""} 
-                onValueChange={(value) => setSelectedCustomerId(value || null)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar cliente (opcional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Ninguno - Venta directa</SelectItem>
-                  {customers.map(customer => (
-                    <SelectItem key={customer.id} value={customer.id}>
-                      {customer.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Método de Pago</label>
+              <label className="text-sm font-medium">Tipo de Cliente</label>
               <div className="flex space-x-2">
                 <Button
                   type="button"
-                  variant={paymentMethod === 'cash' ? 'default' : 'outline'}
+                  variant={customerType === 'occasional' ? 'default' : 'outline'}
                   className="flex-1"
-                  onClick={() => setPaymentMethod('cash')}
+                  onClick={() => setCustomerType('occasional')}
                 >
-                  <DollarSign className="h-4 w-4 mr-2" />
-                  Efectivo
+                  <User className="h-4 w-4 mr-2" />
+                  Ocasional
                 </Button>
                 <Button
                   type="button"
-                  variant={paymentMethod === 'credit' ? 'default' : 'outline'}
+                  variant={customerType === 'regular' ? 'default' : 'outline'}
                   className="flex-1"
-                  onClick={() => setPaymentMethod('credit')}
-                  disabled={!selectedCustomerId}
+                  onClick={() => setCustomerType('regular')}
                 >
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Crédito
+                  <Users className="h-4 w-4 mr-2" />
+                  Usual
                 </Button>
               </div>
-              {paymentMethod === 'credit' && !selectedCustomerId && (
-                <p className="text-sm text-destructive">
-                  Debe seleccionar un cliente para usar crédito.
-                </p>
-              )}
             </div>
             
-            {paymentMethod === 'cash' && (
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Monto Pagado (USD)</label>
-                <Input
-                  type="text"
-                  value={amountPaid}
-                  onChange={(e) => setAmountPaid(e.target.value)}
-                  placeholder="Ingrese el monto pagado"
+            {/* Customer Selection (for regular customers) */}
+            {customerType === 'regular' && (
+              <div className="space-y-2 border rounded-md p-3 bg-muted/20">
+                <label className="text-sm font-medium">Seleccionar Cliente</label>
+                <SearchInput 
+                  placeholder="Buscar cliente por nombre, email o teléfono..." 
+                  onSearch={handleCustomerSearch}
+                  className="mb-2"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Dejar en blanco para pago exacto. 
-                  {selectedCustomerId && " Si el monto es menor que el total, la diferencia se aplicará como crédito."}
-                </p>
+                
+                <div className="max-h-[200px] overflow-y-auto mt-2">
+                  {filteredCustomers.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-2 text-center">
+                      No se encontraron clientes
+                    </p>
+                  ) : (
+                    <RadioGroup
+                      value={selectedCustomerId || ""}
+                      onValueChange={(value) => setSelectedCustomerId(value)}
+                      className="space-y-1"
+                    >
+                      {filteredCustomers.map((customer) => (
+                        <div key={customer.id} className="flex items-center space-x-2 rounded hover:bg-muted p-2">
+                          <RadioGroupItem value={customer.id} id={`customer-${customer.id}`} />
+                          <Label htmlFor={`customer-${customer.id}`} className="flex-1 cursor-pointer">
+                            <div>
+                              <p className="font-medium">{customer.name}</p>
+                              <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
+                                <span>{customer.email}</span>
+                                <span>{customer.phone}</span>
+                                <span className={customer.current_credit > 0 ? "text-amber-500" : ""}>
+                                  Crédito: {formatCurrency(customer.current_credit, 'USD')}
+                                </span>
+                              </div>
+                            </div>
+                          </Label>
+                        </div>
+                      ))}
+                    </RadioGroup>
+                  )}
+                </div>
               </div>
             )}
             
+            {/* Payment Method Selection */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Método de Pago</label>
+              <Tabs defaultValue="cash" onValueChange={(value) => setPaymentMethod(value as PaymentMethod)}>
+                <TabsList className="grid grid-cols-4 w-full">
+                  <TabsTrigger value="cash">Efectivo</TabsTrigger>
+                  <TabsTrigger value="pos">Punto de venta</TabsTrigger>
+                  <TabsTrigger value="biopayment">Biopago</TabsTrigger>
+                  <TabsTrigger 
+                    value="credit" 
+                    disabled={customerType !== 'regular' || !selectedCustomerId}
+                  >
+                    Crédito
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="cash">
+                  <div className="space-y-2 mt-2">
+                    <label className="text-sm font-medium">Monto Pagado (USD)</label>
+                    <Input
+                      type="text"
+                      value={amountPaid}
+                      onChange={(e) => setAmountPaid(e.target.value)}
+                      placeholder="Ingrese el monto pagado"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Dejar en blanco para pago exacto. 
+                      {(customerType === 'regular' && selectedCustomerId) && 
+                        " Si el monto es menor que el total, la diferencia se aplicará como crédito."}
+                    </p>
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="pos">
+                  <div className="flex items-center justify-center p-6">
+                    <div className="text-center">
+                      <CreditCardIcon className="mx-auto h-10 w-10 text-muted-foreground mb-2" />
+                      <p className="text-sm">Utilice el punto de venta para procesar el pago completo.</p>
+                    </div>
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="biopayment">
+                  <div className="flex items-center justify-center p-6">
+                    <div className="text-center">
+                      <SmartphoneIcon className="mx-auto h-10 w-10 text-muted-foreground mb-2" />
+                      <p className="text-sm">Escanee el código de pago o utilice la aplicación Biopago.</p>
+                    </div>
+                  </div>
+                </TabsContent>
+                
+                <TabsContent value="credit">
+                  <div className="flex items-center justify-center p-6">
+                    <div className="text-center">
+                      <CreditCard className="mx-auto h-10 w-10 text-muted-foreground mb-2" />
+                      <p className="text-sm">El total se añadirá al crédito del cliente seleccionado.</p>
+                      {selectedCustomerId && (
+                        <div className="mt-2 p-2 bg-muted rounded">
+                          {(() => {
+                            const customer = customers.find(c => c.id === selectedCustomerId);
+                            if (!customer) return null;
+                            
+                            const newCredit = customer.current_credit + calculateSubtotalUSD();
+                            const willExceedLimit = newCredit > customer.credit_limit;
+                            
+                            return (
+                              <>
+                                <p className="text-sm">
+                                  Crédito actual: <span className="font-medium">{formatCurrency(customer.current_credit, 'USD')}</span>
+                                </p>
+                                <p className="text-sm">
+                                  Nuevo crédito: <span className={`font-medium ${willExceedLimit ? 'text-destructive' : ''}`}>
+                                    {formatCurrency(newCredit, 'USD')}
+                                  </span>
+                                </p>
+                                <p className="text-sm">
+                                  Límite de crédito: <span className="font-medium">{formatCurrency(customer.credit_limit, 'USD')}</span>
+                                </p>
+                                
+                                {willExceedLimit && (
+                                  <p className="text-xs text-destructive mt-1">
+                                    ¡Advertencia! Esta compra excederá el límite de crédito del cliente.
+                                  </p>
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            </div>
+            
+            {/* Order Summary */}
             <div className="bg-muted/50 p-3 rounded-lg mt-4">
               <div className="flex justify-between mb-1">
                 <span className="text-sm">Total (USD):</span>

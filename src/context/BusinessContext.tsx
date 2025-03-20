@@ -27,6 +27,8 @@ export interface Customer {
   purchase_history: Purchase[];
 }
 
+export type PaymentMethod = 'cash' | 'pos' | 'biopayment' | 'credit';
+
 export interface Purchase {
   id: string;
   date: string;
@@ -34,7 +36,10 @@ export interface Purchase {
   total_usd: number;
   items: CartItem[];
   payment_status: 'paid' | 'credit' | 'partial';
+  payment_method: PaymentMethod;
   amount_paid?: number;
+  customer_type: 'regular' | 'occasional';
+  customer_id?: string;
 }
 
 export interface Payment {
@@ -49,7 +54,7 @@ interface BusinessContextType {
   // Products
   products: Product[];
   setProducts: React.Dispatch<React.SetStateAction<Product[]>>;
-  uploadProductsFromCSV: (file: File) => Promise<void>;
+  uploadProductsFromJSON: (file: File) => Promise<void>;
   addProduct: (product: Omit<Product, 'id'>) => void;
   
   // Cart
@@ -76,7 +81,12 @@ interface BusinessContextType {
   calculateSubtotalUSD: () => number;
   
   // Purchases
-  completePurchase: (customerId: string | null, paymentMethod: 'cash' | 'credit', amountPaid?: number) => void;
+  completePurchase: (
+    customerType: 'regular' | 'occasional',
+    customerId: string | null, 
+    paymentMethod: PaymentMethod, 
+    amountPaid?: number
+  ) => void;
 }
 
 const BusinessContext = createContext<BusinessContextType | null>(null);
@@ -147,60 +157,47 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
   }, [lastExchangeRateUpdate]);
 
   // Product functions
-  const uploadProductsFromCSV = async (file: File): Promise<void> => {
+  const uploadProductsFromJSON = async (file: File): Promise<void> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       
       reader.onload = (e) => {
         try {
           const text = e.target?.result as string;
-          const lines = text.split('\n');
-          const headers = lines[0].split(',');
+          const jsonData = JSON.parse(text);
           
-          // Map headers to expected fields
-          const nameIndex = headers.findIndex(h => 
-            h.toLowerCase().includes('nombre') || h.toLowerCase().includes('name'));
-          const priceIndex = headers.findIndex(h => 
-            h.toLowerCase().includes('precio') || h.toLowerCase().includes('price'));
-          const costIndex = headers.findIndex(h => 
-            h.toLowerCase().includes('costo') || h.toLowerCase().includes('cost'));
-          const stockIndex = headers.findIndex(h => 
-            h.toLowerCase().includes('stock') || h.toLowerCase().includes('inventario'));
-          
-          if (nameIndex === -1 || priceIndex === -1) {
-            toast.error("Formato de CSV incorrecto", {
-              description: "El archivo debe contener al menos columnas para nombre y precio",
+          if (!Array.isArray(jsonData)) {
+            toast.error("Formato de JSON incorrecto", {
+              description: "El archivo debe contener un array de productos",
             });
-            reject(new Error("CSV format incorrect"));
+            reject(new Error("JSON format incorrect"));
             return;
           }
           
           const newProducts: Product[] = [];
           
-          // Skip header row
-          for (let i = 1; i < lines.length; i++) {
-            if (!lines[i].trim()) continue;
-            
-            const values = lines[i].split(',');
-            
-            const name = values[nameIndex]?.trim();
-            const price = parseFloat(values[priceIndex]?.trim() || '0');
-            const cost = costIndex !== -1 ? parseFloat(values[costIndex]?.trim() || '0') : 0;
-            const stock = stockIndex !== -1 ? parseInt(values[stockIndex]?.trim() || '0', 10) : 0;
-            
-            if (name && !isNaN(price)) {
-              const profit_percentage = cost > 0 ? ((price - cost) / cost) * 100 : 0;
-              const profit_margin = price - cost;
+          for (const item of jsonData) {
+            // Check if the item has the required fields
+            if (item.name && typeof item.price !== 'undefined') {
+              const name = item.name.trim();
+              const price = parseFloat(item.price);
+              const cost = item.cost ? parseFloat(item.cost) : 0;
+              const stock = item.stock ? parseInt(item.stock, 10) : 0;
               
-              newProducts.push({
-                id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
-                name,
-                price,
-                cost,
-                profit_percentage,
-                profit_margin,
-                stock
-              });
+              if (name && !isNaN(price)) {
+                const profit_percentage = cost > 0 ? ((price - cost) / cost) * 100 : 0;
+                const profit_margin = price - cost;
+                
+                newProducts.push({
+                  id: item.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                  name,
+                  price,
+                  cost,
+                  profit_percentage,
+                  profit_margin,
+                  stock
+                });
+              }
             }
           }
           
@@ -226,7 +223,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
           }
         } catch (error) {
           toast.error("Error al procesar el archivo", {
-            description: "Por favor verifique el formato del archivo CSV.",
+            description: "Por favor verifique el formato del archivo JSON.",
           });
           reject(error);
         }
@@ -369,7 +366,12 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
   };
 
   // Purchase completion
-  const completePurchase = (customerId: string | null, paymentMethod: 'cash' | 'credit', amountPaid?: number) => {
+  const completePurchase = (
+    customerType: 'regular' | 'occasional',
+    customerId: string | null, 
+    paymentMethod: PaymentMethod, 
+    amountPaid?: number
+  ) => {
     const totalBS = calculateSubtotalBS();
     const totalUSD = calculateSubtotalUSD();
     
@@ -387,8 +389,11 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
       total_bs: totalBS,
       total_usd: totalUSD,
       items: [...cart],
-      payment_status: paymentMethod === 'cash' ? 'paid' : 'credit',
+      payment_status: paymentMethod === 'credit' ? 'credit' : 'paid',
+      payment_method: paymentMethod,
       amount_paid: amountPaid,
+      customer_type: customerType,
+      customer_id: customerId || undefined,
     };
     
     // Update customer if specified
@@ -400,7 +405,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
             
             if (paymentMethod === 'credit') {
               newCredit += totalUSD;
-            } else if (paymentMethod === 'cash' && amountPaid && amountPaid < totalUSD) {
+            } else if (amountPaid && amountPaid < totalUSD) {
               // Partial payment
               purchase.payment_status = 'partial';
               newCredit += (totalUSD - amountPaid);
@@ -437,8 +442,15 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
       })
     );
     
+    const paymentMethodText = {
+      'cash': 'Efectivo',
+      'pos': 'Punto de Venta',
+      'biopayment': 'Biopago',
+      'credit': 'Crédito'
+    }[paymentMethod];
+    
     toast.success("Compra completada", {
-      description: `Compra por $${totalUSD.toFixed(2)} (Bs. ${totalBS.toFixed(2)}) completada exitosamente.`,
+      description: `Compra por $${totalUSD.toFixed(2)} (Bs. ${totalBS.toFixed(2)}) completada exitosamente con ${paymentMethodText}.`,
     });
     
     // Clear cart after purchase
@@ -448,7 +460,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
   const value: BusinessContextType = {
     products,
     setProducts,
-    uploadProductsFromCSV,
+    uploadProductsFromJSON,
     addProduct,
     
     cart,
