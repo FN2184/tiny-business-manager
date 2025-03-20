@@ -3,7 +3,8 @@ import React, { useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Upload, DollarSign, Package, BarChart3,
-  Save, AlertTriangle, FileSpreadsheet
+  Save, AlertTriangle, FileSpreadsheet,
+  Plus, Minus, Edit2, Check, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,12 +21,14 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from 'sonner';
 import { useBusinessContext } from '@/context/BusinessContext';
 import PageTransition from '@/components/layout/PageTransition';
 import Card from '@/components/ui-custom/Card';
+import SearchInput from '@/components/ui-custom/SearchInput';
 
 const Administration = () => {
   const { 
@@ -33,7 +36,9 @@ const Administration = () => {
     setExchangeRate, 
     lastExchangeRateUpdate,
     uploadProductsFromCSV,
-    addProduct
+    addProduct,
+    products,
+    setProducts
   } = useBusinessContext();
   
   // Local state
@@ -46,6 +51,15 @@ const Administration = () => {
     profit_percentage: '',
     stock: ''
   });
+  
+  // Stock management state
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filteredProducts, setFilteredProducts] = useState(products);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [editStockValue, setEditStockValue] = useState('');
+  const [isStockDialogOpen, setIsStockDialogOpen] = useState(false);
+  const [selectedProductForStock, setSelectedProductForStock] = useState<typeof products[0] | null>(null);
+  const [newStockValue, setNewStockValue] = useState('');
   
   // Refs
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -204,6 +218,64 @@ const Administration = () => {
     setNewProduct(newProductData);
   };
   
+  // Handle product search for stock management
+  const handleSearch = (term: string) => {
+    setSearchTerm(term);
+    
+    if (term.trim() === '') {
+      setFilteredProducts(products);
+    } else {
+      const lowerSearchTerm = term.toLowerCase();
+      setFilteredProducts(
+        products.filter(product => 
+          product.name.toLowerCase().includes(lowerSearchTerm)
+        )
+      );
+    }
+  };
+  
+  // Handle opening stock edit dialog
+  const handleOpenStockDialog = (product: typeof products[0]) => {
+    setSelectedProductForStock(product);
+    setNewStockValue(product.stock.toString());
+    setIsStockDialogOpen(true);
+  };
+  
+  // Handle updating stock
+  const handleUpdateStock = () => {
+    if (!selectedProductForStock) return;
+    
+    const stock = parseInt(newStockValue, 10);
+    
+    if (isNaN(stock) || stock < 0) {
+      toast.error("Stock inválido", {
+        description: "Ingrese un valor numérico mayor o igual a cero.",
+      });
+      return;
+    }
+    
+    setProducts(prev => 
+      prev.map(product => 
+        product.id === selectedProductForStock.id 
+          ? { ...product, stock }
+          : product
+      )
+    );
+    
+    toast.success("Stock actualizado", {
+      description: `El stock de ${selectedProductForStock.name} se ha actualizado a ${stock} unidades.`,
+    });
+    
+    setIsStockDialogOpen(false);
+  };
+  
+  // Format currency
+  const formatCurrency = (value: number, currency: 'BS' | 'USD') => {
+    return currency === 'BS' 
+      ? `Bs. ${value.toFixed(2)}` 
+      : `$${value.toFixed(2)}`;
+  };
+  
   return (
     <PageTransition>
       <div className="min-h-screen pt-20 pb-8 px-4">
@@ -222,7 +294,7 @@ const Administration = () => {
           </div>
           
           <Tabs defaultValue="exchange-rate" className="w-full">
-            <TabsList className="grid grid-cols-3 max-w-lg">
+            <TabsList className="grid grid-cols-4 max-w-xl">
               <TabsTrigger value="exchange-rate">
                 <DollarSign className="h-4 w-4 mr-2" />
                 Tasa de Cambio
@@ -230,6 +302,10 @@ const Administration = () => {
               <TabsTrigger value="inventory">
                 <Package className="h-4 w-4 mr-2" />
                 Inventario
+              </TabsTrigger>
+              <TabsTrigger value="stock">
+                <Edit2 className="h-4 w-4 mr-2" />
+                Gestión de Stock
               </TabsTrigger>
               <TabsTrigger value="reports">
                 <BarChart3 className="h-4 w-4 mr-2" />
@@ -419,6 +495,65 @@ const Administration = () => {
               </div>
             </TabsContent>
             
+            {/* Stock Management Tab */}
+            <TabsContent value="stock" className="mt-6">
+              <Card>
+                <h2 className="text-xl font-semibold mb-4">Gestión de Stock</h2>
+                
+                <SearchInput 
+                  placeholder="Buscar productos..." 
+                  onSearch={handleSearch}
+                  className="mb-6"
+                />
+                
+                {filteredProducts.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Package className="mx-auto h-12 w-12 text-muted-foreground/50 mb-3" />
+                    <p className="text-muted-foreground">
+                      No se encontraron productos.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-md border">
+                    <div className="grid grid-cols-12 gap-4 p-4 font-medium text-sm bg-muted/40">
+                      <div className="col-span-4">Producto</div>
+                      <div className="col-span-2">Precio</div>
+                      <div className="col-span-2">Stock Actual</div>
+                      <div className="col-span-4 text-right">Acciones</div>
+                    </div>
+                    
+                    <div className="divide-y">
+                      {filteredProducts.map((product) => (
+                        <div key={product.id} className="grid grid-cols-12 gap-4 p-4 items-center">
+                          <div className="col-span-4 font-medium">
+                            {product.name}
+                          </div>
+                          <div className="col-span-2 text-muted-foreground">
+                            {formatCurrency(product.price, 'USD')}
+                          </div>
+                          <div className="col-span-2">
+                            <span className={`font-medium ${product.stock < 5 ? 'text-destructive' : ''}`}>
+                              {product.stock}
+                            </span>
+                          </div>
+                          <div className="col-span-4 text-right">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleOpenStockDialog(product)}
+                            >
+                              <Edit2 className="h-4 w-4 mr-1" />
+                              Editar Stock
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Card>
+            </TabsContent>
+            
             {/* Reports Tab */}
             <TabsContent value="reports" className="mt-6">
               <Card>
@@ -446,6 +581,9 @@ const Administration = () => {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Agregar Nuevo Producto</DialogTitle>
+            <DialogDescription>
+              Ingrese los detalles del nuevo producto a agregar al inventario.
+            </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
@@ -516,6 +654,82 @@ const Administration = () => {
             </Button>
             <Button onClick={handleAddProduct}>
               Guardar Producto
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Edit Stock Dialog */}
+      <Dialog open={isStockDialogOpen} onOpenChange={setIsStockDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Actualizar Stock</DialogTitle>
+            <DialogDescription>
+              Actualice el stock de {selectedProductForStock?.name}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="p-4 bg-muted/30 rounded-lg">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Producto</p>
+                  <p className="font-medium">{selectedProductForStock?.name}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Stock Actual</p>
+                  <p className="font-medium">{selectedProductForStock?.stock}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="new-stock">Nuevo Stock</Label>
+              <Input
+                id="new-stock"
+                type="number"
+                min="0"
+                value={newStockValue}
+                onChange={(e) => setNewStockValue(e.target.value)}
+                placeholder="Ingrese el nuevo valor de stock"
+              />
+            </div>
+            
+            <div className="flex justify-between space-x-4">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  const currentStock = selectedProductForStock?.stock || 0;
+                  setNewStockValue((currentStock + 1).toString());
+                }}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Aumentar
+              </Button>
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  const currentStock = selectedProductForStock?.stock || 0;
+                  if (currentStock > 0) {
+                    setNewStockValue((currentStock - 1).toString());
+                  }
+                }}
+                disabled={selectedProductForStock?.stock === 0}
+              >
+                <Minus className="h-4 w-4 mr-2" />
+                Disminuir
+              </Button>
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsStockDialogOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={handleUpdateStock}>
+              Actualizar Stock
             </Button>
           </DialogFooter>
         </DialogContent>

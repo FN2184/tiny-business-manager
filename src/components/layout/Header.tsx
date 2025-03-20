@@ -1,12 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { 
   Receipt, Settings, Users, Home,
-  Menu, X
+  Menu, X, LogOut, User
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { Button } from '@/components/ui/button';
 
 // Animation variants
 const navItemVariants = {
@@ -19,9 +21,17 @@ interface NavItemProps {
   icon: React.ReactNode;
   label: string;
   isActive: boolean;
+  requiresAuth?: boolean;
 }
 
-const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive }) => {
+const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive, requiresAuth }) => {
+  const { isAuthenticated } = useAuth();
+  
+  // If route requires auth and user is not authenticated, don't show it
+  if (requiresAuth && !isAuthenticated) {
+    return null;
+  }
+  
   return (
     <motion.div
       initial="inactive"
@@ -46,8 +56,10 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, isActive }) => {
 
 const Header: React.FC = () => {
   const location = useLocation();
+  const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const { user, logout, isAuthenticated } = useAuth();
 
   // Handle scroll events for glass effect
   useEffect(() => {
@@ -67,11 +79,16 @@ const Header: React.FC = () => {
 
   const isActive = (path: string) => location.pathname === path;
 
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
   const navItems = [
-    { to: '/', icon: <Home size={18} />, label: 'Inicio' },
-    { to: '/facturacion', icon: <Receipt size={18} />, label: 'Facturación' },
-    { to: '/administracion', icon: <Settings size={18} />, label: 'Administración' },
-    { to: '/clientes', icon: <Users size={18} />, label: 'Clientes' }
+    { to: '/', icon: <Home size={18} />, label: 'Inicio', requiresAuth: false },
+    { to: '/facturacion', icon: <Receipt size={18} />, label: 'Facturación', requiresAuth: false },
+    { to: '/administracion', icon: <Settings size={18} />, label: 'Administración', requiresAuth: true },
+    { to: '/clientes', icon: <Users size={18} />, label: 'Clientes', requiresAuth: true }
   ];
 
   return (
@@ -108,9 +125,31 @@ const Header: React.FC = () => {
               icon={item.icon}
               label={item.label}
               isActive={isActive(item.to)}
+              requiresAuth={item.requiresAuth}
             />
           ))}
         </nav>
+
+        {/* Auth Actions */}
+        <div className="hidden md:flex items-center ml-4">
+          {isAuthenticated ? (
+            <div className="flex items-center space-x-2">
+              <div className="text-sm text-muted-foreground flex items-center">
+                <User size={14} className="mr-1" />
+                <span>{user?.username}</span>
+              </div>
+              <Button variant="ghost" size="sm" onClick={handleLogout} className="text-sm">
+                <LogOut size={14} className="mr-1" /> Salir
+              </Button>
+            </div>
+          ) : (
+            <Link to="/login">
+              <Button variant="ghost" size="sm">
+                <User size={14} className="mr-1" /> Iniciar sesión
+              </Button>
+            </Link>
+          )}
+        </div>
 
         {/* Mobile Menu Button */}
         <button 
@@ -139,8 +178,36 @@ const Header: React.FC = () => {
                 icon={item.icon}
                 label={item.label}
                 isActive={isActive(item.to)}
+                requiresAuth={item.requiresAuth}
               />
             ))}
+            
+            {/* Mobile Auth Actions */}
+            <div className="border-t mt-2 pt-2">
+              {isAuthenticated ? (
+                <div className="space-y-2">
+                  <div className="px-4 py-1 text-sm text-muted-foreground flex items-center">
+                    <User size={14} className="mr-2" />
+                    <span>{user?.username}</span>
+                  </div>
+                  <button 
+                    onClick={handleLogout}
+                    className="w-full text-left flex items-center px-4 py-2 text-destructive hover:bg-destructive/5 rounded-full transition-colors"
+                  >
+                    <LogOut size={18} className="mr-2" />
+                    <span>Cerrar sesión</span>
+                  </button>
+                </div>
+              ) : (
+                <Link 
+                  to="/login"
+                  className="flex items-center px-4 py-2 rounded-full hover:bg-primary/5 transition-colors"
+                >
+                  <User size={18} className="mr-2" />
+                  <span>Iniciar sesión</span>
+                </Link>
+              )}
+            </div>
           </div>
         </motion.div>
       )}

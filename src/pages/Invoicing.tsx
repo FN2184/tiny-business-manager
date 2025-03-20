@@ -231,15 +231,6 @@ const Invoicing = () => {
                               {formatCurrency(product.price * exchangeRate, 'BS')}
                             </span>
                             
-                            {product.stock > 0 && (
-                              <>
-                                <span className="mx-2 text-muted-foreground">•</span>
-                                <span className="text-muted-foreground">
-                                  Stock: {product.stock}
-                                </span>
-                              </>
-                            )}
-                            
                             {product.stock === 0 && (
                               <span className="ml-2 text-destructive">
                                 Sin stock
