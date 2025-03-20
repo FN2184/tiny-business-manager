@@ -14,6 +14,10 @@ export interface Product {
   category: string;
   min_stock: number;
   sales_count: number;
+  unit?: string;
+  additional_info?: string;
+  additional_prices?: string;
+  key?: string;
 }
 
 export interface CartItem extends Product {
@@ -64,6 +68,7 @@ interface BusinessContextType {
   getProductCategories: () => string[];
   getLowStockProducts: () => Product[];
   getTopSellingProducts: (limit?: number) => Product[];
+  addCategory: (category: string) => void;
   
   // Cart
   cart: CartItem[];
@@ -78,6 +83,10 @@ interface BusinessContextType {
   addCustomer: (customer: Omit<Customer, 'id' | 'purchase_history'>) => void;
   addCreditToCustomer: (customerId: string, amount: number) => void;
   makePayment: (customerId: string, amount: number, currency: 'BS' | 'USD') => void;
+  
+  // Categories
+  categories: string[];
+  setCategories: React.Dispatch<React.SetStateAction<string[]>>;
   
   // Exchange rate
   exchangeRate: number;
@@ -120,6 +129,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [exchangeRate, setExchangeRate] = useState<number>(35.5); // Default value
   const [lastExchangeRateUpdate, setLastExchangeRateUpdate] = useState<Date | null>(null);
 
@@ -129,11 +139,17 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     const storedCustomers = localStorage.getItem('business_customers');
     const storedExchangeRate = localStorage.getItem('business_exchange_rate');
     const storedExchangeRateUpdate = localStorage.getItem('business_exchange_rate_update');
+    const storedCategories = localStorage.getItem('business_categories');
 
     if (storedProducts) setProducts(JSON.parse(storedProducts));
     if (storedCustomers) setCustomers(JSON.parse(storedCustomers));
     if (storedExchangeRate) setExchangeRate(parseFloat(storedExchangeRate));
     if (storedExchangeRateUpdate) setLastExchangeRateUpdate(new Date(storedExchangeRateUpdate));
+    if (storedCategories) setCategories(JSON.parse(storedCategories));
+    else {
+      // Initialize with default categories
+      setCategories(['BEBIDA', 'ALIMENTOS', 'LIMPIEZA', 'OTROS']);
+    }
   }, []);
 
   // Save data to localStorage when it changes
@@ -150,6 +166,10 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     setLastExchangeRateUpdate(new Date());
     localStorage.setItem('business_exchange_rate_update', new Date().toISOString());
   }, [exchangeRate]);
+
+  useEffect(() => {
+    localStorage.setItem('business_categories', JSON.stringify(categories));
+  }, [categories]);
 
   // Check if exchange rate needs update (daily reminder)
   useEffect(() => {
@@ -179,6 +199,30 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     }
   }, [products]);
 
+  // Add a new category
+  const addCategory = (category: string) => {
+    const trimmedCategory = category.trim().toUpperCase();
+    
+    if (!trimmedCategory) {
+      toast.error("Categoría inválida", {
+        description: "La categoría no puede estar vacía.",
+      });
+      return;
+    }
+    
+    if (categories.includes(trimmedCategory)) {
+      toast.error("Categoría duplicada", {
+        description: `La categoría "${trimmedCategory}" ya existe.`,
+      });
+      return;
+    }
+    
+    setCategories(prev => [...prev, trimmedCategory]);
+    toast.success("Categoría añadida", {
+      description: `La categoría "${trimmedCategory}" ha sido añadida.`,
+    });
+  };
+
   // Product functions
   const uploadProductsFromJSON = async (file: File): Promise<void> => {
     return new Promise((resolve, reject) => {
@@ -189,48 +233,66 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
           const text = e.target?.result as string;
           const jsonData = JSON.parse(text);
           
-          if (!Array.isArray(jsonData)) {
-            toast.error("Formato de JSON incorrecto", {
-              description: "El archivo debe contener un array de productos",
+          // Handle both array and object formats
+          const productsArray = Array.isArray(jsonData) ? jsonData : [jsonData];
+          
+          if (productsArray.length === 0) {
+            toast.error("JSON vacío", {
+              description: "El archivo no contiene datos de productos.",
             });
-            reject(new Error("JSON format incorrect"));
+            reject(new Error("Empty JSON"));
             return;
           }
           
           const newProducts: Product[] = [];
+          const newCategories: string[] = [];
           
-          for (const item of jsonData) {
-            // Check if the item has the required fields
-            if (item.name && typeof item.price !== 'undefined') {
-              const name = item.name.trim();
-              const price = parseFloat(item.price);
-              const cost = item.cost ? parseFloat(item.cost) : 0;
-              const stock = item.stock ? parseInt(item.stock, 10) : 0;
-              const category = item.category ? item.category.trim() : 'Sin categoría';
-              const min_stock = item.min_stock ? parseInt(item.min_stock, 10) : 5;
-              const sales_count = item.sales_count ? parseInt(item.sales_count, 10) : 0;
+          for (const item of productsArray) {
+            // Support for the specific JSON format provided
+            const name = item.Nombre || item.name || '';
+            const stock = parseInt(item.Cantidad || item.stock || 0, 10);
+            const cost = parseFloat(item.Costo || item.cost || 0);
+            const price = parseFloat(item.Precio || item.price || 0);
+            const min_stock = parseInt(item["Cantidad Mínima"] || item.min_stock || 5, 10);
+            const category = (item.Categoría || item.category || 'Sin categoría').toUpperCase();
+            
+            // Add new categories
+            if (category && !categories.includes(category) && !newCategories.includes(category)) {
+              newCategories.push(category);
+            }
+            
+            if (name && !isNaN(price)) {
+              const profit_percentage = cost > 0 ? ((price - cost) / cost) * 100 : 0;
+              const profit_margin = price - cost;
               
-              if (name && !isNaN(price)) {
-                const profit_percentage = cost > 0 ? ((price - cost) / cost) * 100 : 0;
-                const profit_margin = price - cost;
-                
-                newProducts.push({
-                  id: item.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
-                  name,
-                  price,
-                  cost,
-                  profit_percentage,
-                  profit_margin,
-                  stock,
-                  category,
-                  min_stock,
-                  sales_count
-                });
-              }
+              newProducts.push({
+                id: item.id || Date.now().toString() + Math.random().toString(36).substr(2, 9),
+                name,
+                price,
+                cost,
+                profit_percentage,
+                profit_margin,
+                stock,
+                category,
+                min_stock,
+                sales_count: item.sales_count || 0,
+                unit: item.Unidad || item.unit || 'UNIDAD',
+                key: item.Clave || item.key || '',
+                additional_info: item["Información Adicional"] || item.additional_info || '',
+                additional_prices: item["Precios Adicionales"] || item.additional_prices || ''
+              });
             }
           }
           
           if (newProducts.length > 0) {
+            // Add new categories first
+            if (newCategories.length > 0) {
+              setCategories(prev => [...prev, ...newCategories]);
+              toast.success(`${newCategories.length} categorías nuevas`, {
+                description: `Se han añadido ${newCategories.length} nuevas categorías.`,
+              });
+            }
+            
             setProducts(prev => {
               // Remove duplicates based on name
               const existingNames = new Set(prev.map(p => p.name.toLowerCase()));
@@ -277,6 +339,12 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     };
     
     setProducts(prev => [...prev, newProduct]);
+    
+    // Add category if it doesn't exist
+    if (newProduct.category && !categories.includes(newProduct.category)) {
+      setCategories(prev => [...prev, newProduct.category]);
+    }
+    
     toast.success("Producto añadido", {
       description: `${newProduct.name} se ha añadido al inventario.`,
     });
@@ -315,7 +383,22 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
       return;
     }
     
-    const dataStr = JSON.stringify(products, null, 2);
+    // Convert products to the requested format
+    const formattedProducts = products.map(product => ({
+      "Clave": product.key || "",
+      "Unidad": product.unit || "UNIDAD",
+      "Nombre": product.name,
+      "Cantidad": product.stock,
+      "Costo": product.cost,
+      "Precio": product.price,
+      "Cantidad Mínima": product.min_stock,
+      "Precios Adicionales": product.additional_prices || "",
+      "Información Adicional": product.additional_info || "",
+      "Categoría": product.category,
+      "Costo Promedio": product.cost
+    }));
+    
+    const dataStr = JSON.stringify(formattedProducts, null, 2);
     const dataUri = `data:application/json;charset=utf-8,${encodeURIComponent(dataStr)}`;
     
     const exportFileDefaultName = `inventario_${new Date().toLocaleDateString().replace(/\//g, '-')}.json`;
@@ -331,8 +414,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
   };
   
   const getProductCategories = () => {
-    const categories = new Set(products.map(product => product.category));
-    return Array.from(categories);
+    return categories;
   };
   
   const getLowStockProducts = () => {
@@ -447,7 +529,14 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     setCustomers(prev => 
       prev.map(customer => {
         if (customer.id === customerId) {
-          const newCredit = Math.max(0, customer.current_credit - amountInUSD);
+          // Calculate new credit after payment
+          const newCredit = customer.current_credit - amountInUSD;
+          let message = `Se registró un pago de ${currency === 'BS' ? 'Bs.' : '$'}${amount} para ${customer.name}.`;
+          
+          // If payment is greater than debt, handle the excess as a credit
+          if (newCredit < 0) {
+            message += ` El excedente de ${currency === 'BS' ? 'Bs.' : '$'}${Math.abs(newCredit * (currency === 'BS' ? exchangeRate : 1)).toFixed(2)} queda como crédito a favor.`;
+          }
           
           // Create payment record
           const payment: Payment = {
@@ -461,7 +550,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
           // Could add payment to a separate payments collection if needed
           
           toast.success("Pago registrado", {
-            description: `Se registró un pago de ${currency === 'BS' ? 'Bs.' : '$'}${amount} para ${customer.name}.`,
+            description: message,
           });
           
           return {
@@ -603,6 +692,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     getProductCategories,
     getLowStockProducts,
     getTopSellingProducts,
+    addCategory,
     
     cart,
     addToCart,
@@ -615,6 +705,9 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     addCustomer,
     addCreditToCustomer,
     makePayment,
+    
+    categories,
+    setCategories,
     
     exchangeRate,
     setExchangeRate,
@@ -633,4 +726,3 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     </BusinessContext.Provider>
   );
 };
-
