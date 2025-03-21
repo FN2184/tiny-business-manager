@@ -28,7 +28,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
     setSearchTerm(initialValue);
   }, [initialValue]);
 
-  // Handle input change
+  // Handle input change with debounce
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
     setSearchTerm(value);

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Search, ShoppingCart, X, Plus, Minus, Calculator,
-  Trash2, CreditCard, DollarSign, Users, User, CreditCardIcon, SmartphoneIcon
+  Trash2, CreditCard, User, Users, CreditCardIcon, SmartphoneIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -457,7 +457,7 @@ const Invoicing = () => {
                       <TableBody>
                         {filteredProducts.map((product) => (
                           <TableRow key={product.id}>
-                            <TableCell>{product.name}</TableCell>
+                            <TableCell className="font-medium">{product.name}</TableCell>
                             <TableCell>{product.category}</TableCell>
                             <TableCell className="text-right">${product.price.toFixed(2)}</TableCell>
                             <TableCell className="text-right">Bs. {(product.price * exchangeRate).toFixed(2)}</TableCell>
