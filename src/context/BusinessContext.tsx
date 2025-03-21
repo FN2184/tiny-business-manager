@@ -1,4 +1,3 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { toast } from 'sonner';
 
@@ -429,7 +428,15 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
 
   // Cart functions
   const addToCart = (product: Product, quantity: number) => {
-    // Check if there's enough stock
+    // We now support decimal quantities, but they must be positive
+    if (quantity <= 0) {
+      toast.error("Cantidad inválida", {
+        description: `La cantidad debe ser mayor que cero.`,
+      });
+      return;
+    }
+    
+    // Check if there's enough stock - handle decimal comparisons correctly
     if (quantity > product.stock) {
       toast.error("Stock insuficiente", {
         description: `Solo hay ${product.stock} unidades disponibles de ${product.name}.`,
@@ -442,7 +449,8 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
       
       if (existingItem) {
         // Check if total quantity exceeds stock
-        if (existingItem.quantity + quantity > product.stock) {
+        const totalQuantity = parseFloat((existingItem.quantity + quantity).toFixed(2));
+        if (totalQuantity > product.stock) {
           toast.error("Stock insuficiente", {
             description: `No hay suficiente stock disponible. Stock actual: ${product.stock}, En carrito: ${existingItem.quantity}.`,
           });
@@ -451,7 +459,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
         
         return prev.map(item => 
           item.id === product.id 
-            ? { ...item, quantity: item.quantity + quantity } 
+            ? { ...item, quantity: totalQuantity } 
             : item
         );
       } else {
@@ -469,6 +477,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
   };
 
   const updateCartItemQuantity = (productId: string, quantity: number) => {
+    // Support for decimal quantities
     if (quantity <= 0) {
       removeFromCart(productId);
       return;
@@ -485,7 +494,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     
     setCart(prev => 
       prev.map(item => 
-        item.id === productId ? { ...item, quantity } : item
+        item.id === productId ? { ...item, quantity: parseFloat(quantity.toFixed(2)) } : item
       )
     );
   };
@@ -563,13 +572,19 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     );
   };
 
-  // Calculation functions
+  // Calculation functions - adjusted for decimal quantities
   const calculateSubtotalBS = () => {
-    return cart.reduce((total, item) => total + (item.price * item.quantity * exchangeRate), 0);
+    return cart.reduce((total, item) => {
+      const itemTotal = item.price * item.quantity * exchangeRate;
+      return total + parseFloat(itemTotal.toFixed(2));
+    }, 0);
   };
 
   const calculateSubtotalUSD = () => {
-    return cart.reduce((total, item) => total + (item.price * item.quantity), 0);
+    return cart.reduce((total, item) => {
+      const itemTotal = item.price * item.quantity;
+      return total + parseFloat(itemTotal.toFixed(2));
+    }, 0);
   };
   
   const calculateChange = (amountPaid: number, currency: 'BS' | 'USD') => {
@@ -589,7 +604,7 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     };
   };
 
-  // Purchase completion
+  // Purchase completion - adjusted for decimal quantities
   const completePurchase = (
     customerType: 'regular' | 'occasional',
     customerId: string | null, 
@@ -652,15 +667,15 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
       );
     }
     
-    // Update product stock and sales count
+    // Update product stock and sales count - now handle decimal quantities
     setProducts(prev => 
       prev.map(product => {
         const cartItem = cart.find(item => item.id === product.id);
         if (cartItem) {
           return {
             ...product,
-            stock: Math.max(0, product.stock - cartItem.quantity),
-            sales_count: product.sales_count + cartItem.quantity
+            stock: parseFloat((Math.max(0, product.stock - cartItem.quantity)).toFixed(2)),
+            sales_count: parseFloat((product.sales_count + cartItem.quantity).toFixed(2))
           };
         }
         return product;
@@ -726,3 +741,4 @@ export const BusinessProvider: React.FC<BusinessProviderProps> = ({ children }) 
     </BusinessContext.Provider>
   );
 };
+

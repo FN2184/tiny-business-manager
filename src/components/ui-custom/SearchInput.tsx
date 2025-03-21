@@ -8,16 +8,23 @@ interface SearchInputProps {
   placeholder?: string;
   onSearch: (term: string) => void;
   className?: string;
+  initialValue?: string;
 }
 
 const SearchInput: React.FC<SearchInputProps> = ({
   placeholder = 'Buscar...',
   onSearch,
   className,
+  initialValue = '',
 }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialValue);
   const [isFocused, setIsFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Update searchTerm when initialValue changes
+  useEffect(() => {
+    setSearchTerm(initialValue);
+  }, [initialValue]);
 
   // Handle input change
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
