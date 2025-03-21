@@ -39,7 +39,9 @@ const SearchInput: React.FC<SearchInputProps> = ({
   const clearSearch = () => {
     setSearchTerm('');
     onSearch('');
-    inputRef.current?.focus();
+    if (inputRef.current) {
+      inputRef.current.focus();
+    }
   };
 
   // Focus input on mount if autoFocus is true

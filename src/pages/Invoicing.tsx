@@ -42,6 +42,14 @@ import { useBusinessContext, PaymentMethod } from '@/context/BusinessContext';
 import PageTransition from '@/components/layout/PageTransition';
 import SearchInput from '@/components/ui-custom/SearchInput';
 import Card from '@/components/ui-custom/Card';
+import { 
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow 
+} from "@/components/ui/table";
 
 // Animation variants
 const listItemVariants = {
@@ -124,12 +132,14 @@ const Invoicing = () => {
     
     if (searchTerm.trim() !== '') {
       const lowerSearchTerm = searchTerm.toLowerCase();
-      filtered = filtered.filter(product => 
-        product.name.toLowerCase().includes(lowerSearchTerm) ||
-        product.category.toLowerCase().includes(lowerSearchTerm) ||
-        (product.additional_info && product.additional_info.toLowerCase().includes(lowerSearchTerm)) ||
-        (product.key && product.key.toLowerCase().includes(lowerSearchTerm))
-      );
+      filtered = filtered.filter(product => {
+        const nameMatch = product.name && product.name.toLowerCase().includes(lowerSearchTerm);
+        const categoryMatch = product.category && product.category.toLowerCase().includes(lowerSearchTerm);
+        const infoMatch = product.additional_info && product.additional_info.toLowerCase().includes(lowerSearchTerm);
+        const keyMatch = product.key && product.key.toLowerCase().includes(lowerSearchTerm);
+        
+        return nameMatch || categoryMatch || infoMatch || keyMatch;
+      });
     }
     
     if (selectedCategory !== 'all') {
@@ -139,9 +149,24 @@ const Invoicing = () => {
     // Sort to prioritize exact matches in name
     if (searchTerm.trim() !== '') {
       filtered.sort((a, b) => {
-        const aNameMatch = a.name.toLowerCase() === searchTerm.toLowerCase() ? 0 : 1;
-        const bNameMatch = b.name.toLowerCase() === searchTerm.toLowerCase() ? 0 : 1;
-        return aNameMatch - bNameMatch;
+        const aName = a.name ? a.name.toLowerCase() : '';
+        const bName = b.name ? b.name.toLowerCase() : '';
+        const searchTermLower = searchTerm.toLowerCase();
+        
+        // Exact match at the start of the name gets highest priority
+        if (aName.startsWith(searchTermLower) && !bName.startsWith(searchTermLower)) return -1;
+        if (!aName.startsWith(searchTermLower) && bName.startsWith(searchTermLower)) return 1;
+        
+        // Then check for exact match anywhere in the name
+        if (aName.includes(searchTermLower) && !bName.includes(searchTermLower)) return -1;
+        if (!aName.includes(searchTermLower) && bName.includes(searchTermLower)) return 1;
+        
+        // If both have the term in the name, prioritize the shorter name (more relevant match)
+        if (aName.includes(searchTermLower) && bName.includes(searchTermLower)) {
+          return aName.length - bName.length;
+        }
+        
+        return 0;
       });
     }
     
@@ -155,11 +180,15 @@ const Invoicing = () => {
     } else {
       const lowerSearchTerm = customerSearchTerm.toLowerCase();
       setFilteredCustomers(
-        customers.filter(customer => 
-          customer.name.toLowerCase().includes(lowerSearchTerm) ||
-          customer.email.toLowerCase().includes(lowerSearchTerm) ||
-          customer.phone.toLowerCase().includes(lowerSearchTerm)
-        )
+        customers.filter(customer => {
+          if (!customer) return false;
+          
+          const nameMatch = customer.name && customer.name.toLowerCase().includes(lowerSearchTerm);
+          const emailMatch = customer.email && customer.email.toLowerCase().includes(lowerSearchTerm);
+          const phoneMatch = customer.phone && customer.phone.toLowerCase().includes(lowerSearchTerm);
+          
+          return nameMatch || emailMatch || phoneMatch;
+        })
       );
     }
   }, [customerSearchTerm, customers]);
@@ -413,38 +442,37 @@ const Invoicing = () => {
                   </div>
                 ) : (
                   <div className="mb-4 overflow-x-auto">
-                    <table className="w-full border-collapse">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="text-left p-2 font-medium">Nombre</th>
-                          <th className="text-left p-2 font-medium">Categoría</th>
-                          <th className="text-right p-2 font-medium">Precio (USD)</th>
-                          <th className="text-right p-2 font-medium">Precio (BS)</th>
-                          <th className="text-right p-2 font-medium">Stock</th>
-                          <th className="text-center p-2 font-medium">Cantidad</th>
-                          <th className="text-center p-2 font-medium">Acción</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Nombre</TableHead>
+                          <TableHead>Categoría</TableHead>
+                          <TableHead className="text-right">Precio (USD)</TableHead>
+                          <TableHead className="text-right">Precio (BS)</TableHead>
+                          <TableHead className="text-right">Stock</TableHead>
+                          <TableHead className="text-center">Cantidad</TableHead>
+                          <TableHead className="text-center">Acción</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
                         {filteredProducts.map((product) => (
-                          <tr key={product.id} className="hover:bg-muted/30">
-                            <td className="p-2">{product.name}</td>
-                            <td className="p-2">{product.category}</td>
-                            <td className="p-2 text-right">${product.price.toFixed(2)}</td>
-                            <td className="p-2 text-right">Bs. {(product.price * exchangeRate).toFixed(2)}</td>
-                            <td className={`p-2 text-right ${product.stock <= product.min_stock ? 'text-amber-500 font-medium' : ''}`}>
+                          <TableRow key={product.id}>
+                            <TableCell>{product.name}</TableCell>
+                            <TableCell>{product.category}</TableCell>
+                            <TableCell className="text-right">${product.price.toFixed(2)}</TableCell>
+                            <TableCell className="text-right">Bs. {(product.price * exchangeRate).toFixed(2)}</TableCell>
+                            <TableCell className={`text-right ${product.stock <= product.min_stock ? 'text-amber-500 font-medium' : ''}`}>
                               {product.stock.toFixed(2)}
-                            </td>
-                            <td className="p-2">
+                            </TableCell>
+                            <TableCell className="text-center">
                               <Input
                                 type="text"
                                 value={customQuantity}
                                 onChange={(e) => handleCustomQuantityChange(e.target.value)}
                                 className="w-24 mx-auto text-center"
-                                step="0.0001"
                               />
-                            </td>
-                            <td className="p-2 text-center">
+                            </TableCell>
+                            <TableCell className="text-center">
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -455,11 +483,11 @@ const Invoicing = () => {
                                 <Plus className="h-4 w-4 mr-1" />
                                 Agregar
                               </Button>
-                            </td>
-                          </tr>
+                            </TableCell>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </Card>
