@@ -100,6 +100,7 @@ const Invoicing = () => {
   const [calculatorResult, setCalculatorResult] = useState<{ change_usd: number; change_bs: number } | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [productCategories, setProductCategories] = useState<string[]>([]);
+  const [customQuantity, setCustomQuantity] = useState<string>('1');
   
   // Update filtered products when search term, selected category, or products change
   useEffect(() => {
@@ -112,12 +113,23 @@ const Invoicing = () => {
     if (searchTerm.trim() !== '') {
       const lowerSearchTerm = searchTerm.toLowerCase();
       filtered = filtered.filter(product => 
-        product.name.toLowerCase().includes(lowerSearchTerm)
+        product.name.toLowerCase().includes(lowerSearchTerm) ||
+        product.category.toLowerCase().includes(lowerSearchTerm) ||
+        (product.additional_info && product.additional_info.toLowerCase().includes(lowerSearchTerm))
       );
     }
     
     if (selectedCategory !== 'all') {
       filtered = filtered.filter(product => product.category === selectedCategory);
+    }
+    
+    // Sort to prioritize exact matches in name
+    if (searchTerm.trim() !== '') {
+      filtered.sort((a, b) => {
+        const aNameMatch = a.name.toLowerCase() === searchTerm.toLowerCase() ? 0 : 1;
+        const bNameMatch = b.name.toLowerCase() === searchTerm.toLowerCase() ? 0 : 1;
+        return aNameMatch - bNameMatch;
+      });
     }
     
     setFilteredProducts(filtered);
@@ -151,32 +163,53 @@ const Invoicing = () => {
   
   // Handle adding product to cart
   const handleAddToCart = (product: typeof products[0], quantity: number = 1) => {
-    if (quantity <= 0) {
+    // Parse quantity to ensure it's a valid number
+    let parsedQuantity = parseFloat(quantity.toString());
+    
+    if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
       toast.error("Cantidad inválida", {
         description: "La cantidad debe ser mayor que cero.",
       });
       return;
     }
     
+    // Round to 4 decimal places to avoid floating point issues
+    parsedQuantity = parseFloat(parsedQuantity.toFixed(4));
+    
     // Check if there's enough stock
-    if (quantity > product.stock) {
+    if (parsedQuantity > product.stock) {
       toast.error("Stock insuficiente", {
         description: `Solo hay ${product.stock} unidades disponibles.`,
       });
       return;
     }
     
-    addToCart(product, quantity);
+    addToCart(product, parsedQuantity);
+    setCustomQuantity('1'); // Reset custom quantity input after adding
   };
   
-  // Handle quantity change
+  // Handle custom quantity change
+  const handleCustomQuantityChange = (value: string) => {
+    // Allow only valid decimal numbers
+    if (value === '' || /^\d*\.?\d*$/.test(value)) {
+      setCustomQuantity(value);
+    }
+  };
+  
+  // Handle quantity change in cart
   const handleQuantityChange = (productId: string, value: string) => {
     // Allow decimal values with comma or dot
     const sanitizedValue = value.replace(',', '.');
-    const quantity = parseFloat(sanitizedValue);
     
-    if (!isNaN(quantity) && quantity > 0) {
-      updateCartItemQuantity(productId, quantity);
+    // Only proceed if it's a valid number format
+    if (/^\d*\.?\d*$/.test(sanitizedValue)) {
+      const quantity = parseFloat(sanitizedValue);
+      
+      if (!isNaN(quantity) && quantity > 0) {
+        // Round to 4 decimal places for consistency
+        const roundedQuantity = parseFloat(quantity.toFixed(4));
+        updateCartItemQuantity(productId, roundedQuantity);
+      }
     }
   };
   
@@ -256,9 +289,14 @@ const Invoicing = () => {
     const item = cart.find(item => item.id === productId);
     if (!item) return;
     
-    const newQuantity = increment ? item.quantity + 1 : item.quantity - 1;
+    // For decimal quantities, we'll increase/decrease by 1 or 0.1 if quantity is already decimal
+    const step = item.quantity % 1 !== 0 || item.quantity < 1 ? 0.1 : 1;
+    const newQuantity = increment ? item.quantity + step : item.quantity - step;
     
-    if (newQuantity <= 0) {
+    // Round to 4 decimal places
+    const roundedQuantity = parseFloat(newQuantity.toFixed(4));
+    
+    if (roundedQuantity <= 0) {
       removeFromCart(productId);
       return;
     }
@@ -266,7 +304,7 @@ const Invoicing = () => {
     // Check if there's enough stock when incrementing
     if (increment) {
       const product = products.find(p => p.id === productId);
-      if (product && newQuantity > product.stock) {
+      if (product && roundedQuantity > product.stock) {
         toast.error("Stock insuficiente", {
           description: `Solo hay ${product.stock} unidades disponibles.`,
         });
@@ -274,7 +312,7 @@ const Invoicing = () => {
       }
     }
     
-    updateCartItemQuantity(productId, newQuantity);
+    updateCartItemQuantity(productId, roundedQuantity);
   };
   
   // Format currency
@@ -309,8 +347,9 @@ const Invoicing = () => {
                 
                 <div className="flex flex-col md:flex-row md:items-center gap-3 mb-6">
                   <SearchInput 
-                    placeholder="Buscar productos por nombre..." 
+                    placeholder="Buscar productos por nombre o categoría..." 
                     onSearch={handleSearch}
+                    initialValue={searchTerm}
                     className="flex-1"
                   />
                   
@@ -340,55 +379,55 @@ const Invoicing = () => {
                     </p>
                   </div>
                 ) : (
-                  <motion.div
-                    variants={containerVariants}
-                    initial="hidden"
-                    animate="visible"
-                    className="space-y-3 max-h-[calc(100vh-350px)] overflow-y-auto pr-1"
-                  >
-                    {filteredProducts.map((product) => (
-                      <motion.div
-                        key={product.id}
-                        variants={listItemVariants}
-                        className="flex items-center justify-between bg-muted/30 rounded-lg p-3 border"
-                      >
-                        <div className="flex-1">
-                          <h3 className="font-medium">{product.name}</h3>
-                          <div className="flex items-center mt-1 text-sm">
-                            <span className="text-muted-foreground">
-                              {formatCurrency(product.price, 'USD')}
-                            </span>
-                            <span className="mx-2 text-muted-foreground">•</span>
-                            <span className="text-muted-foreground">
-                              {formatCurrency(product.price * exchangeRate, 'BS')}
-                            </span>
-                            
-                            {product.stock === 0 && (
-                              <span className="ml-2 text-destructive">
-                                Sin stock
-                              </span>
-                            )}
-                            {product.stock > 0 && (
-                              <span className="ml-2 text-emerald-500">
-                                Stock: {product.stock}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-8 w-8 p-0 rounded-full"
-                            onClick={() => handleAddToCart(product)}
-                            disabled={product.stock === 0}
-                          >
-                            <Plus className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </motion.div>
+                  <div className="mb-4 overflow-x-auto">
+                    <table className="w-full border-collapse">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left p-2 font-medium">Nombre</th>
+                          <th className="text-left p-2 font-medium">Categoría</th>
+                          <th className="text-right p-2 font-medium">Precio (USD)</th>
+                          <th className="text-right p-2 font-medium">Precio (BS)</th>
+                          <th className="text-right p-2 font-medium">Stock</th>
+                          <th className="text-center p-2 font-medium">Cantidad</th>
+                          <th className="text-center p-2 font-medium">Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {filteredProducts.map((product) => (
+                          <tr key={product.id} className="hover:bg-muted/30">
+                            <td className="p-2">{product.name}</td>
+                            <td className="p-2">{product.category}</td>
+                            <td className="p-2 text-right">${product.price.toFixed(2)}</td>
+                            <td className="p-2 text-right">Bs. {(product.price * exchangeRate).toFixed(2)}</td>
+                            <td className={`p-2 text-right ${product.stock <= product.min_stock ? 'text-amber-500 font-medium' : ''}`}>
+                              {product.stock.toFixed(2)}
+                            </td>
+                            <td className="p-2">
+                              <Input
+                                type="text"
+                                value={customQuantity}
+                                onChange={(e) => handleCustomQuantityChange(e.target.value)}
+                                className="w-24 mx-auto text-center"
+                                step="0.01"
+                              />
+                            </td>
+                            <td className="p-2 text-center">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleAddToCart(product, parseFloat(customQuantity))}
+                                disabled={product.stock === 0}
+                                className="w-full"
+                              >
+                                <Plus className="h-4 w-4 mr-1" />
+                                Agregar
+                              </Button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </Card>
             </div>
@@ -447,9 +486,9 @@ const Invoicing = () => {
                                 
                                 <Input
                                   type="text"
-                                  value={item.quantity}
+                                  value={item.quantity.toString()}
                                   onChange={(e) => handleQuantityChange(item.id, e.target.value)}
-                                  className="w-12 h-8 text-center text-sm border-0 rounded-none"
+                                  className="w-16 h-8 text-center text-sm border-0 rounded-none"
                                 />
                                 
                                 <Button
@@ -611,6 +650,7 @@ const Invoicing = () => {
                 <SearchInput 
                   placeholder="Buscar cliente por nombre, email o teléfono..." 
                   onSearch={handleCustomerSearch}
+                  initialValue={customerSearchTerm}
                   className="mb-2"
                 />
                 
@@ -815,4 +855,3 @@ const Invoicing = () => {
 };
 
 export default Invoicing;
-
