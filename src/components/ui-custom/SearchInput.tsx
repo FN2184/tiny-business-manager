@@ -9,6 +9,7 @@ interface SearchInputProps {
   onSearch: (term: string) => void;
   className?: string;
   initialValue?: string;
+  autoFocus?: boolean;
 }
 
 const SearchInput: React.FC<SearchInputProps> = ({
@@ -16,6 +17,7 @@ const SearchInput: React.FC<SearchInputProps> = ({
   onSearch,
   className,
   initialValue = '',
+  autoFocus = false,
 }) => {
   const [searchTerm, setSearchTerm] = useState(initialValue);
   const [isFocused, setIsFocused] = useState(false);
@@ -40,12 +42,12 @@ const SearchInput: React.FC<SearchInputProps> = ({
     inputRef.current?.focus();
   };
 
-  // Focus input on mount
+  // Focus input on mount if autoFocus is true
   useEffect(() => {
-    if (inputRef.current) {
+    if (autoFocus && inputRef.current) {
       inputRef.current.focus();
     }
-  }, []);
+  }, [autoFocus]);
 
   return (
     <motion.div

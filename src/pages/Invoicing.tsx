@@ -81,12 +81,13 @@ const Invoicing = () => {
     calculateSubtotalUSD,
     exchangeRate,
     completePurchase,
-    calculateChange
+    calculateChange,
+    getProductCategories
   } = useBusinessContext();
   
   // Local state
   const [searchTerm, setSearchTerm] = useState('');
-  const [filteredProducts, setFilteredProducts] = useState(products);
+  const [filteredProducts, setFilteredProducts] = useState<typeof products>([]);
   const [isCheckoutDialogOpen, setIsCheckoutDialogOpen] = useState(false);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
@@ -101,13 +102,24 @@ const Invoicing = () => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [productCategories, setProductCategories] = useState<string[]>([]);
   const [customQuantity, setCustomQuantity] = useState<string>('1');
+  const [showProductTable, setShowProductTable] = useState(false);
+  
+  // Update categories when products change
+  useEffect(() => {
+    const categories = getProductCategories();
+    setProductCategories(categories);
+  }, [products, getProductCategories]);
   
   // Update filtered products when search term, selected category, or products change
   useEffect(() => {
-    // Extract unique categories
-    const categories = new Set(products.map(product => product.category));
-    setProductCategories(Array.from(categories));
+    // Only show products if there's a search term or category selected
+    if (searchTerm.trim() === '' && selectedCategory === 'all') {
+      setShowProductTable(false);
+      setFilteredProducts([]);
+      return;
+    }
     
+    setShowProductTable(true);
     let filtered = [...products];
     
     if (searchTerm.trim() !== '') {
@@ -115,7 +127,8 @@ const Invoicing = () => {
       filtered = filtered.filter(product => 
         product.name.toLowerCase().includes(lowerSearchTerm) ||
         product.category.toLowerCase().includes(lowerSearchTerm) ||
-        (product.additional_info && product.additional_info.toLowerCase().includes(lowerSearchTerm))
+        (product.additional_info && product.additional_info.toLowerCase().includes(lowerSearchTerm)) ||
+        (product.key && product.key.toLowerCase().includes(lowerSearchTerm))
       );
     }
     
@@ -162,9 +175,16 @@ const Invoicing = () => {
   };
   
   // Handle adding product to cart
-  const handleAddToCart = (product: typeof products[0], quantity: number = 1) => {
+  const handleAddToCart = (product: typeof products[0], quantity: number | string) => {
     // Parse quantity to ensure it's a valid number
-    let parsedQuantity = parseFloat(quantity.toString());
+    let parsedQuantity: number;
+    
+    if (typeof quantity === 'string') {
+      // Replace comma with dot and parse
+      parsedQuantity = parseFloat(quantity.replace(',', '.'));
+    } else {
+      parsedQuantity = quantity;
+    }
     
     if (isNaN(parsedQuantity) || parsedQuantity <= 0) {
       toast.error("Cantidad inválida", {
@@ -322,6 +342,11 @@ const Invoicing = () => {
       : `$${value.toFixed(2)}`;
   };
   
+  // Handle category selection
+  const handleCategoryChange = (category: string) => {
+    setSelectedCategory(category);
+  };
+  
   return (
     <PageTransition>
       <div className="min-h-screen pt-20 pb-8 px-4">
@@ -351,11 +376,12 @@ const Invoicing = () => {
                     onSearch={handleSearch}
                     initialValue={searchTerm}
                     className="flex-1"
+                    autoFocus={true}
                   />
                   
                   <Select 
                     value={selectedCategory} 
-                    onValueChange={setSelectedCategory}
+                    onValueChange={handleCategoryChange}
                   >
                     <SelectTrigger className="w-full md:w-40">
                       <SelectValue placeholder="Categoría" />
@@ -371,11 +397,18 @@ const Invoicing = () => {
                   </Select>
                 </div>
                 
-                {filteredProducts.length === 0 ? (
+                {!showProductTable ? (
                   <div className="text-center py-8">
                     <Search className="mx-auto h-12 w-12 text-muted-foreground/50 mb-3" />
                     <p className="text-muted-foreground">
-                      No se encontraron productos.
+                      Ingrese un término de búsqueda o seleccione una categoría para ver productos.
+                    </p>
+                  </div>
+                ) : filteredProducts.length === 0 ? (
+                  <div className="text-center py-8">
+                    <Search className="mx-auto h-12 w-12 text-muted-foreground/50 mb-3" />
+                    <p className="text-muted-foreground">
+                      No se encontraron productos que coincidan con la búsqueda.
                     </p>
                   </div>
                 ) : (
@@ -408,14 +441,14 @@ const Invoicing = () => {
                                 value={customQuantity}
                                 onChange={(e) => handleCustomQuantityChange(e.target.value)}
                                 className="w-24 mx-auto text-center"
-                                step="0.01"
+                                step="0.0001"
                               />
                             </td>
                             <td className="p-2 text-center">
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => handleAddToCart(product, parseFloat(customQuantity))}
+                                onClick={() => handleAddToCart(product, customQuantity)}
                                 disabled={product.stock === 0}
                                 className="w-full"
                               >
